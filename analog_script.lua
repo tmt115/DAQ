@@ -13,7 +13,7 @@ local mb = require("Modbus")
 ---------------------------------
 
  --[[ 
-    Configre one thermocouple with positive voltage ain at ppin against
+    Configure one thermocouple with positive voltage ain at ppin against
     npin, resolution rind, voltage range +-0.1V, settling time of set us, 
     and temperature celsius or farenheit.
  --]]
@@ -61,7 +61,7 @@ end
 function current_to_pressure(current, pmin, pmax)
     local pressure = ((current-0.004)/(0.016)) * (pmax-pmin) + pmin
     return pressure
-
+end
 
 -- Configure the pins
 configure_thermocouple(pos_pin, neg_pin, temp_res_ind, settle, celsius)
@@ -75,5 +75,5 @@ while(true)
 
     -- This is assuming Celsius can change the units
     print("Temperature (C): ", temp)
-    print("pressure (psi): ", p)
+    print("Pressure (psi): ", p)
 end
