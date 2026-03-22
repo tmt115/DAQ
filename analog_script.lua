@@ -169,7 +169,9 @@ configure_transducer_loadcell(ppin_num, prng, prind)
 configure_transducer_loadcell(lpin_num, lrng, lind)
 -- Configure the Servo Pins
 configure_digital_io(servo1_pwm_pin, "output")
+configure_pwm(servo1_pwm_pin, startval)
 configure_digital_io(servo2_pwm_pin, "output")
+configure_pwm(servo2_pwm_pin, startval)
 -- Configure ignition pins
 configure_digital_io(ignite_in_pin, "input")
 configure_digital_io(ignite_out_pin, "output")
