@@ -15,13 +15,13 @@ killed = False
 timestamp = 0
 celsius = 1
 farenheit = 2
+hist = 10
 pastt = np.zeros(hist)
 pastp = np.zeros(hist)
 pastl = np.zeros(hist)
-hist = 10
 last_mc = 0
-# pwm_freq = 
-# kill_pin_num = 
+# pwm_freq =
+# kill_pin_num =
 # tpin_pos_num =
 # tpin_neg_num =
 # trng =
@@ -39,6 +39,7 @@ last_mc = 0
 # v_kload =
 # res_val =
 # arm_pin =
+# safety_arm_pin =
 # fire_pin =
 # ignite_out_pin =
 # servo1_pwm_pin =
@@ -51,6 +52,27 @@ last_mc = 0
 # lastfire =
 # v_off
 # fire_time
+
+# Safety thresholds — warning band triggers a log message, fault band triggers a kill
+# warn_temp_max =
+# warn_temp_min =
+# fault_temp_max =
+# fault_temp_min =
+# warn_pres_max =
+# warn_pres_min =
+# fault_pres_max =
+# fault_pres_min =
+# warn_load_max =
+# warn_load_min =
+# fault_load_max =
+# fault_load_min =
+
+# Max allowed per-sample change before triggering a fault
+# max_temp_rate =
+# max_pres_rate =
+# max_load_rate =
+
+REQUIRED_SAFE = 5  # consecutive clean readings before clearing a fault
 
 # ================================
 # EXCEPTIONS
@@ -99,7 +121,7 @@ def configure_transducer_loadcell(apin, rng, rind):
 
 # --------------------------------------------------------
 # Configures a pin as digital I/O, with the function func.
-# func MUST BE either 'input' or 'ouput'.
+# func MUST BE either 'input' or 'output'.
 # --------------------------------------------------------
 def configure_digital_io(diopin_num, func):
     if func == "input":
@@ -245,7 +267,7 @@ def is_ignition_safe(a, p, t, l, mp, mt, ml, mip, mit, mil):
         print(Fore.RED + "IGNITION FAILURE: SYSTEM NOT ARMED")
         return False
     if p > mp or p < mip:
-        print(Fore.RED + "IGNITION FAILURE: PRESSURE TOO LARGE")
+        print(Fore.RED + "IGNITION FAILURE: PRESSURE OUT OF RANGE")
         return False
     if t > mt or t < mit:
         print(Fore.RED + "IGNITION FAILURE: TEMPERATURE TOO HIGH")
@@ -285,46 +307,45 @@ def fire(ipin, ftime):
 # ================================
 
 # --------------------------------------------------------
-# Averages current temperature with past 10 temps and 
-# checks to see if it is within bounds.
+# Checks if the per-sample change in a reading exceeds
+# max_delta. Returns False if the rate of change is too
+# large. Skips the check on the first sample.
+# --------------------------------------------------------
+def check_rate_of_change(history, current, max_delta):
+    if timestamp == 0:
+        return True
+    last = history[(timestamp - 1) % hist]
+    return abs(current - last) <= max_delta
+
+# --------------------------------------------------------
+# Averages current temperature with the populated history
+# window and checks against fault bounds.
 # --------------------------------------------------------
 def check_temperature(history, temperature):
-    sum = 0
-    for i in history:
-        sum += i
-    sum = (sum+temperature)/(hist+1)
-    if sum > max_temp or sum < min_temp:
-        return False
-    return True
+    count = min(timestamp, hist)
+    avg = (np.sum(history[:count]) + temperature) / (count + 1)
+    return fault_temp_min <= avg <= fault_temp_max
 
 # --------------------------------------------------------
-# Averages current pressure with past 10 pressures and 
-# checks to see if it is within bounds.
+# Averages current pressure with the populated history
+# window and checks against fault bounds.
 # --------------------------------------------------------
 def check_pressure(history, pressure):
-    sum = 0
-    for i in history:
-        sum += i
-    sum = (sum+pressure)/(hist+1)
-    if sum > max_pres or sum < min_pres:
-        return False
-    return True
+    count = min(timestamp, hist)
+    avg = (np.sum(history[:count]) + pressure) / (count + 1)
+    return fault_pres_min <= avg <= fault_pres_max
 
 # --------------------------------------------------------
-# Averages current load with past 10 loads and 
-# checks to see if it is within bounds.
+# Averages current load with the populated history
+# window and checks against fault bounds.
 # --------------------------------------------------------
 def check_load(history, load):
-    sum = 0
-    for i in history:
-        sum += i
-    sum = (sum+load)/(hist+1)
-    if sum > max_load or sum < min_load:
-        return False
-    return True
+    count = min(timestamp, hist)
+    avg = (np.sum(history[:count]) + load) / (count + 1)
+    return fault_load_min <= avg <= fault_load_max
 
 # --------------------------------------------------------
-# IKills the current running sequence by shutting off
+# Kills the current running sequence by shutting off
 # a power pin, sending an abort message.
 # --------------------------------------------------------
 def kill(safet, safep, safel, kill_pin):
@@ -335,7 +356,34 @@ def kill(safet, safep, safel, kill_pin):
         return Fore.RED + "ABORTING: PRESSURE UNSAFE. PLEASE RESET SYSTEM ONCE MANUALLY CONFIRMED SAFE"
     if not safel:
         return Fore.RED + "ABORTING: LOAD UNSAFE. PLEASE RESET SYSTEM ONCE MANUALLY CONFIRMED SAFE"
-    
+
+def wait_for_safe_conditions():
+    consecutive_safe = 0
+    while consecutive_safe < REQUIRED_SAFE:
+        temp = read_temperature(tpin_pos_num)
+        pres = read_pressure(ppin_num, res_val, pmin, pmax)
+        load = read_load(lpin_num, v_off, kload, v_kload)
+
+        safet = fault_temp_min <= temp <= fault_temp_max
+        safep = fault_pres_min <= pres <= fault_pres_max
+        safel = fault_load_min <= load <= fault_load_max
+
+        if safet and safep and safel:
+            consecutive_safe += 1
+        else:
+            consecutive_safe = 0
+        time.sleep(0.1)
+
+def wait_for_arm():
+    global killed, pastt, pastp, pastl
+    while not dread(arm_pin):
+        pass
+    pastt[:] = 0
+    pastp[:] = 0
+    pastl[:] = 0
+    dwrite(kill_pin_num, 1)
+    killed = False
+        
 # ================================
 # CONFIGURATION
 # ================================
@@ -356,37 +404,42 @@ configure_digital_io(movact_pin_num, "input")
 # Configure ignition pins
 configure_digital_io(fire_pin, "input")
 configure_digital_io(ignite_out_pin, "output")
-configure_digital_io(fire_pin, "input")
 
 # ================================
 # MAIN LOOP 
 # ================================
 
-while not killed:
+while True:
     temp = read_temperature(tpin_pos_num)
     pres = read_pressure(ppin_num, res_val, pmin, pmax)
     load = read_load(lpin_num, v_off, kload, v_kload)
 
-    warn = 0
-    safet = True
-    safep = True
-    safel = True
-    if temp > max_temp or temp < min_temp:
-        warn = 1
-        safet = check_temperature(pastt, temp)
-    if pres > max_pres or pres < min_pres:
-        warn = 1
-        safep = check_pressure(pastp, pres)
-    if load > max_load or load < min_load:
-        warn = 1
-        safel = check_load(pastl, load)  
-    if warn:
-        if not (safet and safep and safel):
-            kill_message = kill(safet, safep, safel, kill_pin_num)  
-            killed = True
-            raise SystemFault(kill_message)
-        else:
-            print(Fore.YELLOW + "WARNING: POTENTIALLY UNSAFE CONDITIONS")
+    # Rate-of-change fault check
+    safe_temp_rate = check_rate_of_change(pastt, temp, max_temp_rate)
+    safe_pres_rate = check_rate_of_change(pastp, pres, max_pres_rate)
+    safe_load_rate = check_rate_of_change(pastl, load, max_load_rate)
+
+    # Two-tier threshold checks
+    in_fault_temp = not (fault_temp_min <= temp <= fault_temp_max)
+    in_fault_pres = not (fault_pres_min <= pres <= fault_pres_max)
+    in_fault_load = not (fault_load_min <= load <= fault_load_max)
+    in_warn_temp  = not (warn_temp_min  <= temp <= warn_temp_max)
+    in_warn_pres  = not (warn_pres_min  <= pres <= warn_pres_max)
+    in_warn_load  = not (warn_load_min  <= load <= warn_load_max)
+
+    safet = not in_fault_temp and safe_temp_rate and check_temperature(pastt, temp)
+    safep = not in_fault_pres and safe_pres_rate and check_pressure(pastp, pres)
+    safel = not in_fault_load and safe_load_rate and check_load(pastl, load)
+
+    if not (safet and safep and safel):
+        kill_message = kill(safet, safep, safel, kill_pin_num)
+        killed = True
+        print(kill_message)
+        wait_for_safe_conditions()
+        print(Fore.GREEN + "SYSTEM SAFE: ARM TO RESTART")
+        wait_for_arm()
+    elif in_warn_temp or in_warn_pres or in_warn_load:
+        print(Fore.YELLOW + "WARNING: APPROACHING SAFETY LIMITS")
 
     if not killed:
         idx = timestamp%hist
@@ -397,8 +450,8 @@ while not killed:
         firing = (dread(fire_pin) == 1)
 
         if firing:
-            if timestamp < hist:
-                did_fire = fire_control(ignite_out_pin, fire_time, armed, pres, temp, load, max_pres, max_temp, max_load, min_pres, min_temp, min_load)
+            if timestamp >= hist:
+                did_fire = fire_control(ignite_out_pin, fire_time, armed, pres, temp, load, fault_pres_max, fault_temp_max, fault_load_max, fault_pres_min, fault_temp_min, fault_load_min)
                 lastfire = int(did_fire)
             else:
                 print(Fore.RED + "IGNITION FAILED: SYSTEM NOT READY")
@@ -406,8 +459,8 @@ while not killed:
         
         movcom = detect_move(movact_pin_num)
         if movcom:
-            movseq1(servo1_pwm_pin)
-            movseq2(servo2_pwm_pin)
+            moveseq1(servo1_pwm_pin)
+            moveseq2(servo2_pwm_pin)
             last_mc = 1
         else:
             last_mc = 0
