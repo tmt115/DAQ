@@ -20,6 +20,11 @@ pastt = np.zeros(hist)
 pastp = np.zeros(hist)
 pastl = np.zeros(hist)
 last_mc = 0
+SERVO_IDLE   = 0
+SERVO_STAGE1 = 1  
+SERVO_STAGE2 = 2 
+servo_state  = SERVO_IDLE
+servo_timer  = 0
 # pwm_freq =
 # kill_pin_num =
 # tpin_pos_num =
@@ -202,8 +207,7 @@ def read_load(ldpin, v_off, kload, v_kload):
 # MUST BE either 'open' or 'closed'. Returns whether motor
 # moved, prints error if there is one.
 # --------------------------------------------------------
-def move(diopin_num, nextpos):
-    global curpos
+def move(diopin_num, nextpos, curpos):
     if nextpos == curpos:
         print(Fore.RED + "MOVE COMMAND FAILED: ALREADY " + curpos.upper())
         return False
@@ -229,19 +233,22 @@ def detect_move(pin):
     return False
 
 # --------------------------------------------------------
-# Controlled movement of servo 1.
+# Controlled movement of servos.
 # --------------------------------------------------------
-def moveseq1(pin1):
-    # TBD
-    pass
+def moveseq_start(pin1, pin2):
+    global servo_state, servo_timer
+    move(pin1, target)
+    move(pin2, target)
+    servo_state = SERVO_STAGE1
+    servo_timer = time.time()
 
-# --------------------------------------------------------
-# Controlled movement of servo 2.
-# --------------------------------------------------------
-def moveseq2(pin2):
-    # TBD
-    pass
-
+def moveseq_update(pin1, pin2):
+    global servo_state
+    if servo_state == SERVO_STAGE1:
+        if time.time() - servo_timer >= stroke_time:
+            move(pin1, next_target)
+            move(pin2, next_target)
+            servo_state = SERVO_STAGE2
 # --------------------------------------------------------
 # Reads from DIO Pin.
 # --------------------------------------------------------
@@ -458,12 +465,9 @@ while True:
                 lastfire = 0
         
         movcom = detect_move(movact_pin_num)
-        if movcom:
-            moveseq1(servo1_pwm_pin)
-            moveseq2(servo2_pwm_pin)
-            last_mc = 1
-        else:
-            last_mc = 0
+        if movcom and servo_state == SERVO_IDLE:
+            moveseq_start(servo1_pwm_pin, servo2_pwm_pin)
+            moveseq_update(servo1_pwm_pin, servo2_pwm_pin)
 
         print(Fore.GREEN + "Temperature (C):", temp)
         print(Fore.GREEN + "Pressure (psi):", pres)
