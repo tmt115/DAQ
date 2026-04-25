@@ -228,22 +228,22 @@ def run_safety_checks(tc1, tc2, pt1, pt2, pt3, pt4, load):
     hists_t = [pastt1, pastt2]
     hists_p = [pastp1, pastp2, pastp3, pastp4]
 
-    if system_state != STATE_HOT_FIRE
-    for t, h in zip(temps, hists_t):
-        if not check_rate_of_change(h, t, max_temp_rate):
-            return False, "TEMPERATURE RATE OF CHANGE EXCEEDED"
-        if not check_sensor_avg(h, t, fault_temp_min, fault_temp_max):
-            return False, "TEMPERATURE OUT OF FAULT BOUNDS"
-        if not (warn_temp_min <= t <= warn_temp_max):
-            print(Fore.YELLOW + "WARNING: TEMPERATURE APPROACHING LIMITS")
+    if system_state != STATE_HOT_FIRE:
+        for t, h in zip(temps, hists_t):
+            if not check_rate_of_change(h, t, max_temp_rate):
+                return False, "TEMPERATURE RATE OF CHANGE EXCEEDED"
+            if not check_sensor_avg(h, t, fault_temp_min, fault_temp_max):
+                return False, "TEMPERATURE OUT OF FAULT BOUNDS"
+            if not (warn_temp_min <= t <= warn_temp_max):
+                print(Fore.YELLOW + "WARNING: TEMPERATURE APPROACHING LIMITS")
 
-    for p, h in zip(presses, hists_p):
-        if not check_rate_of_change(h, p, max_pres_rate):
-            return False, "PRESSURE RATE OF CHANGE EXCEEDED"
-        if not check_sensor_avg(h, p, fault_pres_min, fault_pres_max):
-            return False, "PRESSURE OUT OF FAULT BOUNDS"
-        if not (warn_pres_min <= p <= warn_pres_max):
-            print(Fore.YELLOW + "WARNING: PRESSURE APPROACHING LIMITS")
+        for p, h in zip(presses, hists_p):
+            if not check_rate_of_change(h, p, max_pres_rate):
+                return False, "PRESSURE RATE OF CHANGE EXCEEDED"
+            if not check_sensor_avg(h, p, fault_pres_min, fault_pres_max):
+                return False, "PRESSURE OUT OF FAULT BOUNDS"
+            if not (warn_pres_min <= p <= warn_pres_max):
+                print(Fore.YELLOW + "WARNING: PRESSURE APPROACHING LIMITS")
 
     if not check_rate_of_change(pastl, load, max_load_rate):
         return False, "LOAD RATE OF CHANGE EXCEEDED"
@@ -303,6 +303,7 @@ configure_digital_io(arm_pin,    "input")
 configure_digital_io(start_pin,  "input")
 
 def sample_safety_check():
+    global timestamp
     tc1  = read_temperature(tc1_pin_pos)
     tc2  = read_temperature(tc2_pin_pos)
     pt1  = read_pressure(pt1_pin, pt_res_val, pt1_pmin, pt1_pmax)
